@@ -4,7 +4,8 @@
 # Current Codex builds expose SessionEnd directly. This wrapper remains a
 # fallback for older builds and non-interactive modes that do not dispatch
 # lifecycle hooks reliably. It runs codex with your arguments and, when the
-# process exits, points the dekyon worker at the newest rollout file.
+# process exits, asks the dekyon worker to find the newest rollout whose
+# session metadata matches this working directory.
 #
 # Use it instead of `codex` (alias codex=dekyon-codex), or alongside the
 # hook-based capture installed by `install.py --codex`; the note is keyed by
@@ -17,22 +18,16 @@ rc=$?
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 WORKER="$DIR/../scripts/dekyon_worker.py"
-SESS="${CODEX_HOME:-$HOME/.codex}/sessions"
 if command -v python3 >/dev/null 2>&1; then
     PYTHON=python3
 else
     PYTHON=python
 fi
 
-# Newest rollout = the session that just ended. Filenames embed the start
-# timestamp, so lexicographic sort works; fall back to mtime via ls -t.
-latest=$(find "$SESS" -type f \( -name 'rollout-*.jsonl' -o -name 'rollout-*.jsonl.zst' \) 2>/dev/null | sort | tail -1)
-[ -z "$latest" ] && latest=$(ls -t "$SESS"/*/*/*/rollout-*.jsonl* 2>/dev/null | head -1)
-
-if [ -n "$latest" ] && [ -f "$WORKER" ]; then
+if [ -f "$WORKER" ]; then
     # Detach so the note is written even if the terminal closes right after
     # codex exits: prefer setsid, fall back to nohup, then a bare background job.
-    payload=$("$PYTHON" -c 'import json,sys; print(json.dumps({"session_id":"", "transcript_path":sys.argv[1], "cwd":sys.argv[2], "reason":"codex-exit", "source":"codex"}))' "$latest" "$PWD")
+    payload=$("$PYTHON" -c 'import json,sys; print(json.dumps({"session_id":"", "transcript_path":"", "cwd":sys.argv[1], "reason":"codex-exit", "source":"codex"}))' "$PWD")
     if command -v setsid >/dev/null 2>&1; then
         printf '%s' "$payload" | DEKYON_ACTIVE=1 setsid "$PYTHON" "$WORKER" --stdin >/dev/null 2>&1 &
     elif command -v nohup >/dev/null 2>&1; then

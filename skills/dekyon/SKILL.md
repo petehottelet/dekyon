@@ -1,6 +1,6 @@
 ---
 name: dekyon
-description: Save, search, recall, and troubleshoot dekyon narrative coding-session notes and per-project lessons stored in the user's git-synced notes repo. Use when the user asks in any wording to checkpoint work, save a session note, write a handoff, recap or resume past work, search when something changed, recall project lessons, or diagnose dekyon setup, configuration, missing notes, commits, or pushes. Also use before a long or risky operation when the user would benefit from an explicit checkpoint.
+description: Save, search, recall, and troubleshoot dekyon narrative coding-session notes and per-project lessons stored in the user's git-synced notes repo. Use when the user asks in any wording to checkpoint work, save a session note, write a handoff, recap or resume past work, search when something changed, recall project lessons, or diagnose dekyon setup, configuration, missing notes, commits, or pushes. Before a long or risky operation, offer a checkpoint when useful, but do not create, commit, or push one unless the user accepts.
 ---
 
 # dekyon session notes
@@ -51,6 +51,12 @@ the note filename so the user can open it.
 
 ## Writing a mid-session checkpoint
 
+Treat an explicit checkpoint request or acceptance of an offered checkpoint as
+authorization to write the note and make its local commit. Push only when the
+user explicitly requests it or the configured `push: true` reflects their
+existing opt-in to automatic sync; if that intent is unclear, ask before
+pushing.
+
 You already have the conversation in context, so write the note directly -
 do not try to parse the transcript. Uniform format matters because the
 injector and the lessons harvester parse these notes, so ALWAYS use this
@@ -80,15 +86,19 @@ traps hit). Never include secrets, tokens, or credentials - paraphrase
 around them.
 
 Then: (1) save as
-`sessions/<project>/YYYY-MM-DD--HHMM--<slug-of-title>--checkpoint.md`;
-(2) prepend a matching line to that project's `index.md` under "Newest
-first."; (3) append any real Lessons bullets to `lessons.md` as
+`sessions/<project>/YYYY-MM-DD--HHMMSS--<slug-of-title>--checkpoint.md`
+(include seconds so repeated checkpoints do not overwrite each other);
+(2) prepend a line to that project's `index.md` under "Newest first.",
+in the same format the automatic capture uses:
+`- YYYY-MM-DD HH:MM . [<title>](<note-file>) . <user>+<assistant> msgs . checkpoint`;
+(3) append any real Lessons bullets to `lessons.md` as
 `- YYYY-MM-DD . <lesson> . [<title>](<note-file>)`; (4) stage only those
 note/index/ledger paths and commit them:
 
 ```
 git -C <repo_dir> add -- <note-path> <index-path> [<lessons-path>]
-git -C <repo_dir> commit -m "session(<project>): <title> [checkpoint]"
+git -C <repo_dir> commit --only -m "session(<project>): <title> [checkpoint]" -- \
+  <note-path> <index-path> [<lessons-path>]
 ```
 
 Read `push`, `remote`, and `branch` from config before syncing. If `push` is

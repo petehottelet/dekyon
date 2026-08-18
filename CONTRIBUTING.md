@@ -19,9 +19,12 @@ From the repository root, run:
 ```bash
 python -m unittest discover -s tests -v
 python -m compileall -q install.py uninstall.py scripts
+ruff check .
+coverage run --branch -m unittest discover -s tests
+coverage report --fail-under=70
 python scripts/validate_release.py
 claude plugin validate .
-npx --yes skills@latest add . --list
+npx --yes skills@1.5.22 add . --list
 ```
 
 Keep changes cross-platform. Tests must pass on Windows and Linux, and shell

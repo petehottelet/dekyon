@@ -10,7 +10,7 @@
       "name": "dekyon",
       "source": "./",
       "description": "Session memory for Claude Code and Codex CLI as plain markdown in a git repo you own.",
-      "version": "1.0.0",
+      "version": "0.5.0",
       "license": "MIT",
       "keywords": ["memory", "claude-code", "codex", "hooks", "git"]
     }

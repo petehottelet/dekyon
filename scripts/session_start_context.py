@@ -22,9 +22,68 @@ MAX_TOTAL = 4200
 MAX_PER_NOTE = 1200
 
 
+def _rebase_in_progress(repo: Path) -> bool:
+    git_dir = repo / ".git"
+    if git_dir.is_file():
+        try:
+            pointer = git_dir.read_text(encoding="utf-8", errors="replace").strip()
+            if pointer.lower().startswith("gitdir:"):
+                target = Path(pointer.split(":", 1)[1].strip())
+                git_dir = target if target.is_absolute() else (repo / target).resolve()
+        except OSError:
+            return False
+    return (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
+
+
+def refresh_repo(repo: Path, remote: str, branch: str) -> None:
+    """Best-effort pull that never targets another remote or leaves our rebase active."""
+    had_rebase = _rebase_in_progress(repo)
+    try:
+        result = subprocess.run(
+            ["git", "remote"], cwd=repo, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=3,
+        )
+        if result.returncode != 0 or remote not in result.stdout.split():
+            return
+        if not branch:
+            current = subprocess.run(
+                ["git", "branch", "--show-current"], cwd=repo,
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=3,
+            )
+            if current.returncode != 0 or not current.stdout.strip():
+                return
+            branch = current.stdout.strip()
+        pull = subprocess.run(
+            ["git", "pull", "--rebase", "--autostash", "--quiet", remote, branch],
+            cwd=repo, capture_output=True, timeout=6,
+        )
+        if pull.returncode != 0 and not had_rebase and _rebase_in_progress(repo):
+            subprocess.run(
+                ["git", "rebase", "--abort"], cwd=repo,
+                capture_output=True, timeout=3,
+            )
+    except subprocess.TimeoutExpired:
+        if not had_rebase and _rebase_in_progress(repo):
+            try:
+                subprocess.run(
+                    ["git", "rebase", "--abort"], cwd=repo,
+                    capture_output=True, timeout=3,
+                )
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        return
+    except OSError:
+        return
+
+
 def main() -> int:
     if os.environ.get("DEKYON_ACTIVE"):
         return 0
+    try:  # notes are UTF-8; the default Windows console codec would crash
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
     try:
         raw = (sys.stdin.buffer.read().decode("utf-8-sig")
                if hasattr(sys.stdin, "buffer") else sys.stdin.read())
@@ -39,6 +98,8 @@ def main() -> int:
     if CONFIG_PATH.exists():
         try:
             cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            if not isinstance(cfg, dict):
+                raise ValueError("config must be a JSON object")
             repo = Path(cfg.get("repo_dir", repo)).expanduser()
             n_lessons = int(cfg.get("context_lessons", n_lessons))
             remote = str(cfg.get("remote", remote))
@@ -49,19 +110,7 @@ def main() -> int:
         return 0
 
     # Best-effort refresh from GitHub; never block session start for long.
-    try:
-        remotes = subprocess.run(["git", "remote"], cwd=repo, capture_output=True,
-                                 text=True, timeout=3).stdout.split()
-        if remotes:
-            pull = ["git", "pull", "--rebase", "--autostash", "--quiet"]
-            if remote in remotes:
-                pull.append(remote)
-                if branch:
-                    pull.append(branch)
-            subprocess.run(pull,
-                           cwd=repo, capture_output=True, timeout=6)
-    except (subprocess.TimeoutExpired, OSError):
-        pass
+    refresh_repo(repo, remote, branch)
 
     cwd = payload.get("cwd") or os.getcwd()
     project = re.sub(r"[^a-z0-9]+", "-", Path(cwd).name.lower()).strip("-")[:32]
@@ -101,9 +150,9 @@ def main() -> int:
     ledger = notes_dir / "lessons.md"
     if n_lessons > 0 and ledger.exists():
         try:
-            bullets = [l for l in ledger.read_text(encoding="utf-8",
-                                                   errors="replace").splitlines()
-                       if l.startswith("- ")][-n_lessons:]
+            bullets = [line for line in ledger.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines() if line.startswith("- ")][-n_lessons:]
         except OSError:
             bullets = []
         if bullets:

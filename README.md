@@ -32,8 +32,9 @@ No resident daemon, no database, no background service, no open ports. Your
 memory is plain markdown files - in a repo *you* own - that you can read,
 grep, diff, and delete like anything else in git. With the default AI
 summarizer, dekyon sends a redacted session digest through your authenticated
-`claude` CLI; set `summarizer` to `"none"` for a fully local structural
-digest. Git sync happens only when `push` is enabled.
+`claude` CLI with built-in tools, MCP tools, skills, and session persistence
+disabled; set `summarizer` to `"none"` for a fully local structural digest.
+Git sync happens only when `push` is enabled.
 
 > **Why not a memory database?** Because you can't `cat` a database, can't
 > review it in a PR, and can't be sure what it's sending where. dekyon's
@@ -69,7 +70,7 @@ sessions/
   my-project/
     index.md          ← newest-first log, one line per session
     lessons.md        ← rolling ledger of durable takeaways
-    2026-08-17--1432--fix-auth-refresh--a1b2c3d4.md
+    2026-08-17--1432--fixed-auth-token-refresh-window--a1b2c3d4.md
 ```
 
 ```markdown
@@ -101,8 +102,8 @@ messages: {user: 4, assistant: 6}
 - add regression test for clock skew
 ```
 
-Summaries come from a cheap `claude -p --model haiku` call. If the `claude`
-CLI is missing, times out, or errors, the worker falls back to a
+Summaries come from a cheap, tool-free `claude -p --model haiku` call. If the
+`claude` CLI is missing, times out, or errors, the worker falls back to a
 deterministic structural digest (first prompt, files touched, commands run).
 For every eligible session with a readable transcript, a note is still
 written even when the AI call fails. `## Lessons` bullets are also appended to
@@ -227,13 +228,13 @@ This idempotently merges three entries into `~/.codex/hooks.json`:
 - `Stop` writes a throttled structural upsert so work survives a crash.
 - `SessionEnd` replaces that same stable note with the final AI summary.
 
-Hooks are enabled by default on current Codex builds, but older builds
-shipped the hook engine off by default behind a feature flag. If `/hooks`
-lists nothing after installing, add this to `~/.codex/config.toml`:
+Hooks are enabled by default on current Codex builds. If they were explicitly
+disabled, or `/hooks` lists nothing after installing, restore the canonical
+feature flag in `~/.codex/config.toml`:
 
 ```toml
 [features]
-hooks = true    # the oldest builds used: codex_hooks = true
+hooks = true    # codex_hooks remains a deprecated alias
 ```
 
 Open `/hooks` after installation to review and trust the commands. Builds
@@ -319,19 +320,11 @@ If the same problem keeps coming back, start with the log.
 - **Trivial-session filter.** Tool results ride on user-role transcript
   entries; the parser counts only real typed prompts, so opening and
   closing the agent doesn't spam the repo.
-- **Concurrency and offline.** Git operations are serialized with a file
-  lock, pushes do `pull --rebase --autostash` first and fail quietly, and
-  everything lands in the log instead of your terminal.
-
-## Prior art and credit
-
-dekyon learned from [claude-mem](https://github.com/thedotmack/claude-mem),
-[agentmemory](https://github.com/rohitg00/agentmemory), and
-[everything-claude-code](https://github.com/affaan-m/everything-claude-code).
-In particular: pre-compaction checkpoints preserve detail, a lessons ledger
-keeps durable project knowledge visible, and a noise-tool blocklist keeps
-bookkeeping events out of session summaries. dekyon combines those ideas
-with a deliberately plain storage model: dated markdown in git.
+- **Concurrency and offline.** The full note/index/lessons/commit transaction
+  is serialized with a file lock. Existing remote branches use
+  `pull --rebase --autostash`; empty remotes are bootstrapped with the first
+  push. Failures keep commits local and land in the log instead of your
+  terminal.
 
 ## Contributing
 

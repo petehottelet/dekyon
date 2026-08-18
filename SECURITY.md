@@ -17,5 +17,6 @@ Session notes are derived from coding-agent transcripts. Keep the notes repo
 private unless its contents are intentionally public. Built-in redaction is
 best-effort and cannot guarantee removal of every secret or proprietary value.
 With the default summarizer, a redacted digest is sent through the authenticated
-Claude CLI; set `"summarizer": "none"` in `~/.claude/dekyon.json` to use only
-the local structural digest.
+Claude CLI with built-in tools, MCP tools, skills, hooks, and session
+persistence disabled; set `"summarizer": "none"` in
+`~/.claude/dekyon.json` to use only the local structural digest.

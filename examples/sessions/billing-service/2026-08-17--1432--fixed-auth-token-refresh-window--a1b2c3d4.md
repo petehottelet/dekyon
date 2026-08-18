@@ -1,13 +1,13 @@
 ---
 title: "Fixed auth token refresh window"
 date: 2026-08-17T14:32-07:00
-session_id: a1b2c3d4
-project: billing-service
+session_id: "a1b2c3d4"
+project: "billing-service"
 cwd: "/home/dev/billing-service"
-branch: fix/auth
-reason: prompt_input_exit
-kind: session
-model: claude-haiku
+branch: "fix/auth"
+reason: "prompt_input_exit"
+kind: "session"
+model: "claude-haiku"
 duration_min: 24
 messages: {user: 4, assistant: 6}
 ---
@@ -32,3 +32,6 @@ messages: {user: 4, assistant: 6}
 
 ## Open threads
 - Add a regression test for clock skew across timezones.
+
+---
+*Auto-captured by dekyon . tools: Edit x2, Bash x3, Read x4 . files touched: 1*

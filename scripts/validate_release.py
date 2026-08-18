@@ -109,11 +109,14 @@ def main():
 
     vercel = load_json(ROOT / "vercel.json")
     redirects = vercel.get("redirects", [])
-    require(redirects == [{
-        "source": "/:path*",
+    expected_redirect = {
         "destination": "https://github.com/petehottelet/dekyon",
         "permanent": True,
-    }], "vercel.json must permanently redirect every path to the GitHub repository")
+    }
+    require(redirects == [
+        {"source": "/", **expected_redirect},
+        {"source": "/:path*", **expected_redirect},
+    ], "vercel.json must permanently redirect the root and every path to GitHub")
 
     ignores = {
         line.strip() for line in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()

@@ -14,29 +14,169 @@ Usage:
 """
 import argparse
 import json
+import os
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SETTINGS = Path.home() / ".claude" / "settings.json"
 CONFIG = Path.home() / ".claude" / "dekyon.json"
-MARK = "dekyon"
+DEKYON_SCRIPTS = ("session_end.py", "session_start_context.py", "dekyon_worker.py")
+DEKYON_STATUSES = {
+    "Saving session note (dekyon)",
+    "Loading session notes (dekyon)",
+    "Saving pre-compaction note (dekyon)",
+    "Checkpointing session (dekyon)",
+}
 
 
 def our(handler: dict) -> bool:
-    return MARK in json.dumps(handler)
+    if not isinstance(handler, dict):
+        return False
+    values = [str(handler.get("command", ""))]
+    if isinstance(handler.get("args"), list):
+        values.extend(str(value) for value in handler["args"])
+    command = " ".join(values).replace("\\", "/").lower()
+    script_match = any(script in command for script in DEKYON_SCRIPTS)
+    branded = str(handler.get("statusMessage", "")) in DEKYON_STATUSES
+    legacy_path = "/dekyon/scripts/" in command
+    plugin_path = "${claude_plugin_root}/scripts/" in command
+    return script_match and (branded or legacy_path or plugin_path)
 
 
 def scrub(groups):
     kept = []
-    for g in groups or []:
-        hooks = [h for h in g.get("hooks", []) if not our(h)]
-        if hooks:
-            g = dict(g, hooks=hooks)
+    for g in groups if isinstance(groups, list) else []:
+        if not isinstance(g, dict):
             kept.append(g)
+            continue
+        existing = g.get("hooks", [])
+        if not isinstance(existing, list):
+            kept.append(g)
+            continue
+        hooks = [h for h in existing if not our(h)]
+        if len(hooks) == len(existing):
+            kept.append(g)
+        elif hooks:
+            kept.append(dict(g, hooks=hooks))
     return kept
+
+
+def read_json_object(path: Path):
+    if not path.exists():
+        return {}, None
+    try:
+        original = path.read_text(encoding="utf-8")
+        doc = json.loads(original)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return doc, original
+
+
+def _write_temp_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        "w", delete=False, dir=path.parent, prefix=f".{path.name}.",
+        suffix=".tmp", encoding="utf-8", newline="\n",
+    )
+    try:
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return Path(handle.name)
+    except Exception:
+        Path(handle.name).unlink(missing_ok=True)
+        raise
+
+
+def _write_temp_json(path: Path, doc: dict) -> Path:
+    return _write_temp_text(path, json.dumps(doc, indent=2) + "\n")
+
+
+def write_json_documents(documents) -> None:
+    """Validate, back up, and atomically replace a set of JSON documents."""
+    prepared = []
+    try:
+        for path, doc, original in documents:
+            current = path.read_text(encoding="utf-8") if path.exists() else None
+            if current != original:
+                raise RuntimeError(f"{path} changed while dekyon was installing; retry")
+            prepared.append((path, _write_temp_json(path, doc), original))
+
+        for path, _, original in prepared:
+            current = path.read_text(encoding="utf-8") if path.exists() else None
+            if current != original:
+                raise RuntimeError(f"{path} changed while dekyon was installing; retry")
+
+        for path, _, original in prepared:
+            if original is not None:
+                shutil.copy2(path, Path(str(path) + ".bak"))
+
+        replaced = []
+        try:
+            for path, temporary, original in prepared:
+                os.replace(temporary, path)
+                replaced.append((path, original))
+        except OSError:
+            for path, original in reversed(replaced):
+                if original is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    rollback = _write_temp_text(path, original)
+                    os.replace(rollback, path)
+            raise
+    finally:
+        for _, temporary, _ in prepared:
+            temporary.unlink(missing_ok=True)
+
+
+def normalized_remote(url: str) -> str:
+    value = str(url).strip().rstrip("/")
+    return value[:-4] if value.lower().endswith(".git") else value
+
+
+def hooks_object(doc: dict, path: Path) -> dict:
+    hooks = doc.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        raise ValueError(f"{path} has a non-object 'hooks' value")
+    return hooks
+
+
+def resolve_notes_repo(value: str) -> Path:
+    if "://" not in value and not value.startswith("git@"):
+        return Path(value).expanduser().resolve()
+
+    dest = Path.home() / "claude-session-notes"
+    if not dest.exists():
+        result = subprocess.run(["git", "clone", value, str(dest)])
+        if result.returncode != 0:
+            raise RuntimeError("git clone failed; hook settings were not changed")
+    if not (dest / ".git").exists():
+        raise RuntimeError(f"{dest} exists but is not a git repository")
+    current = subprocess.run(
+        ["git", "-C", str(dest), "remote", "get-url", "origin"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    if current.returncode == 0:
+        if normalized_remote(current.stdout) != normalized_remote(value):
+            raise RuntimeError(
+                f"{dest} already uses a different origin ({current.stdout.strip()}); "
+                "choose a local path or fix that remote explicitly"
+            )
+    else:
+        added = subprocess.run(
+            ["git", "-C", str(dest), "remote", "add", "origin", value]
+        )
+        if added.returncode != 0:
+            raise RuntimeError(f"could not add origin to {dest}")
+    return dest
 
 
 def main() -> int:
@@ -50,14 +190,24 @@ def main() -> int:
                     help="also wire Codex CLI hooks into ~/.codex/hooks.json")
     args = ap.parse_args()
 
-    settings = {}
-    if SETTINGS.exists():
-        try:
-            settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            sys.exit(f"{SETTINGS} is not valid JSON; fix it first (no changes made).")
+    codex_hooks_path = Path.home() / ".codex" / "hooks.json"
+    try:
+        settings, settings_original = read_json_object(SETTINGS)
+        if args.codex:
+            codex_doc, codex_original = read_json_object(codex_hooks_path)
+        else:
+            codex_doc, codex_original = None, None
+        if args.repo:
+            cfg, config_original = read_json_object(CONFIG)
+        else:
+            cfg, config_original = None, None
+    except ValueError as exc:
+        sys.exit(f"{exc} (no changes made).")
 
-    hooks = settings.setdefault("hooks", {})
+    try:
+        hooks = hooks_object(settings, SETTINGS)
+    except ValueError as exc:
+        sys.exit(f"{exc} (no changes made).")
     end_hook = {"type": "command", "command": sys.executable,
                 "args": [str(HERE / "scripts" / "session_end.py")], "timeout": 15,
                 "statusMessage": "Saving session note (dekyon)"}
@@ -81,20 +231,11 @@ def main() -> int:
     if not hooks["PreCompact"]:
         del hooks["PreCompact"]
 
-    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-    print(f"hooks written to {SETTINGS}")
-
     if args.codex:
-        codex_hooks_path = Path.home() / ".codex" / "hooks.json"
-        doc = {}
-        if codex_hooks_path.exists():
-            try:
-                doc = json.loads(codex_hooks_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                sys.exit(f"{codex_hooks_path} is not valid JSON; fix it first "
-                         "(Claude-side changes above were applied).")
-        chooks = doc.setdefault("hooks", {})
+        try:
+            chooks = hooks_object(codex_doc, codex_hooks_path)
+        except ValueError as exc:
+            sys.exit(f"{exc} (no changes made).")
         # Codex user hooks use command strings, so write absolute paths plus a
         # Windows-specific override generated from the interpreter running this
         # installer. This avoids assuming that `python3` is on PATH.
@@ -110,43 +251,41 @@ def main() -> int:
 
         chooks["SessionStart"] = scrub(chooks.get("SessionStart")) + [{"hooks": [
             {"type": "command", **codex_command(start_argv), "timeout": 10,
-             "statusMessage": "Loading session notes (dekyon)"}]}]
+             "statusMessage": "Loading session notes (dekyon)",
+             "additionalContextLimit": 1500}]}]
         chooks["SessionEnd"] = scrub(chooks.get("SessionEnd")) + [{"hooks": [
             {"type": "command", **codex_command(end_argv), "timeout": 3,
              "statusMessage": "Saving session note (dekyon)"}]}]
         chooks["Stop"] = scrub(chooks.get("Stop")) + [{"hooks": [
             {"type": "command", **codex_command(stop_argv), "timeout": 20,
              "statusMessage": "Checkpointing session (dekyon)"}]}]
-        codex_hooks_path.parent.mkdir(parents=True, exist_ok=True)
-        codex_hooks_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    if args.repo:
+        try:
+            cfg["repo_dir"] = str(resolve_notes_repo(args.repo))
+        except RuntimeError as exc:
+            sys.exit(f"{exc} (hook settings were not changed).")
+
+    documents = [(SETTINGS, settings, settings_original)]
+    if args.codex:
+        documents.append((codex_hooks_path, codex_doc, codex_original))
+    if args.repo:
+        documents.append((CONFIG, cfg, config_original))
+    try:
+        write_json_documents(documents)
+    except (OSError, RuntimeError, ValueError) as exc:
+        sys.exit(f"install failed safely: {exc}")
+
+    print(f"hooks written to {SETTINGS}")
+    if args.codex:
         print(f"Codex hooks written to {codex_hooks_path}")
         print("  SessionStart restores context, Stop writes crash-tolerant upserts,\n"
               "  and SessionEnd replaces the upsert with the final note. Review and\n"
               "  trust the new commands in Codex with /hooks.\n"
-              "  If /hooks lists nothing, your Codex build gates the hook engine\n"
-              "  behind a feature flag; add to ~/.codex/config.toml:\n"
+              "  Hooks are enabled by default. If they were disabled explicitly,\n"
+              "  restore them in ~/.codex/config.toml with:\n"
               "    [features]\n"
-              "    hooks = true    # the oldest builds used: codex_hooks = true")
-
+              "    hooks = true    # codex_hooks remains a deprecated alias")
     if args.repo:
-        cfg = {}
-        if CONFIG.exists():
-            try:
-                cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                cfg = {}
-        if "://" in args.repo or args.repo.startswith("git@"):
-            dest = Path.home() / "claude-session-notes"
-            if not dest.exists():
-                rc = subprocess.run(["git", "clone", args.repo, str(dest)]).returncode
-                if rc != 0:
-                    print("clone failed; init'ing locally and adding the remote instead")
-                    subprocess.run(["git", "init", "-b", "main", str(dest)])
-                    subprocess.run(["git", "-C", str(dest), "remote", "add", "origin", args.repo])
-            cfg["repo_dir"] = str(dest)
-        else:
-            cfg["repo_dir"] = str(Path(args.repo).expanduser().resolve())
-        CONFIG.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
         print(f"notes repo set to {cfg['repo_dir']} in {CONFIG}")
 
     print("done. Restart Claude Code (or start a new session) and check /hooks.")
