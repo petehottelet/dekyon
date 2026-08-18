@@ -2,7 +2,9 @@
   <img src="assets/dekyon_logo_v4_animated.svg" alt="dekyon — close the loop. keep the memory." width="680">
 
   <p>
+    <!-- Enable after skills.sh indexes the repository:
     <a href="https://skills.sh/petehottelet/dekyon"><img src="https://skills.sh/b/petehottelet/dekyon?style=flat-square&amp;labelColor=001827&amp;color=00ACFF" alt="dekyon installs on skills.sh"></a>
+    -->
     <a href="https://github.com/petehottelet/dekyon/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/petehottelet/dekyon/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;labelColor=001827&amp;logo=githubactions&amp;logoColor=00ACFF" alt="CI status"></a>
     <img src="https://img.shields.io/badge/python-3.8%2B-00ACFF?style=flat-square&amp;labelColor=001827&amp;logo=python&amp;logoColor=white" alt="Python 3.8 or newer">
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-00C2C7?style=flat-square&amp;labelColor=001827" alt="License: MIT"></a>
