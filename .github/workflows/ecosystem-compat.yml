@@ -13,10 +13,11 @@ jobs:
     name: Current Claude Code and skills CLI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
+          package-manager-cache: false
       - name: Validate with current Claude Code
         run: npx --yes @anthropic-ai/claude-code@latest plugin validate .
       - name: Verify current skills CLI discovery

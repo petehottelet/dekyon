@@ -257,6 +257,7 @@ class InstallAndLauncherTests(unittest.TestCase):
             deadline = time.time() + 15
             notes = []
             committed = False
+            worker_finished = False
             while time.time() < deadline:
                 notes = list(notes_dir.glob("*.md")) if notes_dir.exists() else []
                 notes = [path for path in notes if path.name not in ("index.md", "lessons.md")]
@@ -267,11 +268,29 @@ class InstallAndLauncherTests(unittest.TestCase):
                     )
                     if log.returncode == 0 and "session(demo-project)" in log.stdout:
                         committed = True
-                        break
+                spool = state / "spool"
+                spool_empty = spool.exists() and not list(spool.glob("*.json"))
+                if committed and spool_empty:
+                    if os.name == "nt":
+                        # The detached worker inherits the launcher log handle.
+                        # Prove that process has exited before TemporaryDirectory
+                        # tries to remove the log on Windows, where open files
+                        # cannot be deleted.
+                        log_file = state / "dekyon.log"
+                        probe = state / "dekyon.log.test-probe"
+                        try:
+                            os.replace(log_file, probe)
+                            os.replace(probe, log_file)
+                        except (FileNotFoundError, PermissionError):
+                            time.sleep(0.1)
+                            continue
+                    worker_finished = True
+                    break
                 time.sleep(0.1)
 
             self.assertEqual(len(notes), 1)
             self.assertTrue(committed)
+            self.assertTrue(worker_finished)
             self.assertIn("Fix the end-to-end path", notes[0].read_text(encoding="utf-8"))
 
     def test_context_injection_marks_recalled_notes_as_untrusted(self):

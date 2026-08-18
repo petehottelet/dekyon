@@ -12,6 +12,8 @@ All notable changes to dekyon are documented here. Format follows
   configuration atomicity, and failed startup rebases.
 - A scheduled ecosystem-compatibility workflow tests the current Claude Code
   and skills CLI releases while pull requests use reproducible pinned checks.
+- GitHub Actions use the current Node 24-based checkout and setup actions,
+  avoiding deprecated action-runtime warnings.
 - `install.py --codex` and the README now explain the Codex hook feature
   flag: hooks are enabled by default, `hooks` is the canonical key, and
   `codex_hooks` remains a deprecated alias.
