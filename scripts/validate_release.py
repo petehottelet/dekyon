@@ -100,7 +100,7 @@ def main():
         "assets/dekyon_logo_v4_animated.svg",
         "actions/workflows/ci.yml",
         "python-3.8%2B",
-        "skills.sh-dekyon",
+        "skills.sh/b/petehottelet/dekyon",
         "git clone https://github.com/petehottelet/dekyon.git",
     ):
         require(needle in readme, f"README.md is missing release surface: {needle}")
