@@ -1,0 +1,18 @@
+{
+  "name": "dekyon",
+  "owner": { "name": "Pete Hottelet", "url": "https://github.com/petehottelet" },
+  "description": "Automatic coding-session memory stored as plain markdown in a git repo you own.",
+  "metadata": {
+    "description": "Automatic coding-session memory stored as plain markdown in a git repo you own."
+  },
+  "plugins": [
+    {
+      "name": "dekyon",
+      "source": "./",
+      "description": "Session memory for Claude Code and Codex CLI as plain markdown in a git repo you own.",
+      "version": "1.0.0",
+      "license": "MIT",
+      "keywords": ["memory", "claude-code", "codex", "hooks", "git"]
+    }
+  ]
+}

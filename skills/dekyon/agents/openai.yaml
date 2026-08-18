@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dekyon"
+  short_description: "Recall and checkpoint coding session notes"
+  default_prompt: "Use $dekyon to recall where we left off on this project."

@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.8", "3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Compile Python sources
+        run: >-
+          python -m py_compile install.py uninstall.py
+          scripts/dekyon_worker.py scripts/session_end.py
+          scripts/session_start_context.py scripts/validate_release.py
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Validate JSON
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          for path in Path(".").rglob("*.json"):
+              json.loads(path.read_text(encoding="utf-8"))
+              print(path)
+      - name: Check POSIX wrapper syntax
+        if: runner.os != 'Windows'
+        run: sh -n bin/dekyon-codex
+
+  package:
+    name: Validate plugin and skill packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate release metadata
+        run: python scripts/validate_release.py
+      - name: Validate Claude Code plugin
+        run: npx --yes @anthropic-ai/claude-code@2.1.63 plugin validate .
+      - name: Verify skills CLI discovery
+        run: npx --yes skills@latest add . --list

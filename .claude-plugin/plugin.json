@@ -1,0 +1,10 @@
+{
+  "name": "dekyon",
+  "description": "Session memory for Claude Code and Codex CLI, stored as plain markdown in a git repo you own. On session end a hook writes one narrative note - what happened, decisions, changes, lessons, open threads - and commits + pushes it to your private GitHub repo. No daemon, no database, no open ports.",
+  "version": "1.0.0",
+  "author": { "name": "Pete Hottelet", "url": "https://github.com/petehottelet" },
+  "homepage": "https://github.com/petehottelet/dekyon",
+  "repository": "https://github.com/petehottelet/dekyon",
+  "license": "MIT",
+  "keywords": ["memory", "session-memory", "persistent-memory", "claude-code", "codex", "hooks", "git", "markdown", "context", "agent-memory"]
+}
